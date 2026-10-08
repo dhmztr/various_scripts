@@ -69,6 +69,15 @@ def export():
         return
     git("clone", "-q", "--mirror", url(), EXPORT)
     git("config", "--remove-section", "remote.origin", cwd=EXPORT)  # URL zawiera hasło
+    # clone --mirror trzyma refy w packed-refs; rozpakuj do plików refs/changes/...
+    packed = f"{EXPORT}/packed-refs"
+    with open(packed) as f:
+        refs = [l.split() for l in f if l[0] not in "#^"]
+    os.remove(packed)
+    for sha, ref in refs:
+        os.makedirs(os.path.dirname(f"{EXPORT}/{ref}"), exist_ok=True)
+        with open(f"{EXPORT}/{ref}", "w") as f:
+            f.write(sha + "\n")
     print(f"repo -> {EXPORT}")
 
 
