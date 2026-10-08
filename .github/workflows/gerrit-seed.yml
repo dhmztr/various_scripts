@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       branch:
-        description: Gałąź docelowa dla master z Gerrita
+        description: Gałąź docelowa (kod CL-ek + reviews/*.json)
         default: gerrit-demo
 
 permissions:
@@ -43,6 +43,6 @@ jobs:
           BRANCH: ${{ inputs.branch }}
         run: |
           git -C demo.git push --force "$TARGET" \
-            "refs/heads/master:refs/heads/$BRANCH" \
+            "refs/heads/review-export:refs/heads/$BRANCH" \
             'refs/changes/*:refs/changes/*' \
             'refs/meta/config:refs/meta/config'

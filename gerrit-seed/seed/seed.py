@@ -12,6 +12,7 @@ G = os.environ.get("GERRIT_URL", "http://gerrit:8080")
 PASS = os.environ.get("SEED_PASSWORD", "secret")
 EXPORT = os.environ.get("EXPORT_DIR", "")
 PROJECT = "demo"
+EXPORT_BRANCH = "review-export"
 USERS = ["alice", "bob"]
 
 jar = http.cookiejar.CookieJar()
@@ -48,8 +49,14 @@ def api(method, path, data, user="admin"):
     req(method, path, data, {"Authorization": auth(user)})
 
 
+def get(path):
+    r = urllib.request.Request(f"{G}/a{path}", headers={"Authorization": auth("admin")})
+    body = urllib.request.urlopen(r).read().decode()
+    return json.loads(body.split("\n", 1)[1])  # Gerrit poprzedza JSON linią )]}'
+
+
 def git(*args, cwd=None):
-    subprocess.run(["git", *args], cwd=cwd, check=True)
+    subprocess.run(["git", *args], cwd=cwd, check=True, stdout=subprocess.DEVNULL)
 
 
 def url(user="admin"):
@@ -119,6 +126,36 @@ for i in range(1, 4):
         "message": f"bob: uwagi do CL {i}",
         "comments": {f"file{i}.txt": [{"line": 2, "message": "A tu literówka?"}]},
     }, "bob")
+
+# gałąź z kodem CL-ek i ich recenzjami jako pliki JSON (czytelne na GitHubie)
+git("checkout", "-q", "--detach", "origin/master", cwd=work)
+os.makedirs(f"{work}/reviews", exist_ok=True)
+changes = get(f"/changes/?q=project:{PROJECT}&o=CURRENT_REVISION&o=MESSAGES"
+              "&o=DETAILED_LABELS&o=DETAILED_ACCOUNTS")
+for c in sorted(changes, key=lambda c: c["_number"]):
+    n = c["_number"]
+    ref = c["revisions"][c["current_revision"]]["ref"]
+    git("fetch", "-q", "origin", ref, cwd=work)
+    git("cherry-pick", "--allow-empty", "FETCH_HEAD", cwd=work)
+    review = {
+        "change": n,
+        "subject": c["subject"],
+        "owner": c["owner"].get("username"),
+        "url": f"{G}/c/{PROJECT}/+/{n}",
+        "votes": {lbl: {v["username"]: v.get("value", 0) for v in d.get("all", [])}
+                  for lbl, d in c["labels"].items()},
+        "messages": [{"author": m.get("author", {}).get("username"),
+                      "date": m["date"], "message": m["message"]}
+                     for m in c["messages"]],
+        "comments": [{"author": x["author"].get("username"), "file": f,
+                      "line": x.get("line"), "date": x["updated"], "message": x["message"]}
+                     for f, xs in get(f"/changes/{n}/comments").items() for x in xs],
+    }
+    with open(f"{work}/reviews/{n}.json", "w") as f:
+        json.dump(review, f, indent=2, ensure_ascii=False)
+    git("add", "reviews", cwd=work)
+    git("commit", "-q", "-m", f"Review CL {n}: {c['subject']}", cwd=work)
+git("push", "-q", "origin", f"HEAD:refs/heads/{EXPORT_BRANCH}", cwd=work)
 
 export()
 creds()
