@@ -85,9 +85,7 @@ def export():
     if not EXPORT:
         return
     mirror(PROJECT, EXPORT)
-    # All-Users: konta (refs/users/*), które mapują "Gerrit User <id>" z komentarzy na nazwy
-    mirror("All-Users", os.path.join(os.path.dirname(EXPORT), "All-Users.git"))
-    print(f"repo -> {os.path.dirname(EXPORT)}")
+    print(f"repo -> {EXPORT}")
 
 
 def creds():
@@ -114,11 +112,6 @@ for u in USERS:
     api("PUT", f"/accounts/{u}",
         {"name": u, "email": f"{u}@example.com", "http_password": PASS})
 api("PUT", f"/projects/{PROJECT}", {"create_empty_commit": True})
-
-# Access Database: bez tego admin widzi w All-Users tylko swój refs/users/*
-admins = get("/groups/Administrators")["id"]
-api("POST", "/projects/All-Projects/access", {"add": {"GLOBAL_CAPABILITIES": {
-    "permissions": {"accessDatabase": {"rules": {admins: {"action": "ALLOW"}}}}}}})
 
 # repo + CL-ki: każdy commit wypchnięty na refs/for/master to osobna zmiana
 work = tempfile.mkdtemp()
