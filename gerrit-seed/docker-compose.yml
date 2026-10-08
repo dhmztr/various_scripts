@@ -1,0 +1,33 @@
+services:
+  gerrit:
+    image: gerritcodereview/gerrit:3.10.0
+    ports:
+      - "8080:8080"
+      - "29418:29418"
+    volumes:
+      - gerrit-etc:/var/gerrit/etc
+      - gerrit-git:/var/gerrit/git
+      - gerrit-db:/var/gerrit/db
+      - gerrit-index:/var/gerrit/index
+      - gerrit-cache:/var/gerrit/cache
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:8080/config/server/version || exit 1"]
+      interval: 3s
+      timeout: 3s
+      retries: 60
+      start_period: 20s
+
+  seed:
+    build: ./seed
+    depends_on:
+      gerrit:
+        condition: service_healthy
+    environment:
+      GERRIT_URL: http://gerrit:8080
+      SEED_PASSWORD: secret
+      EXPORT_DIR: /out/demo.git
+    volumes:
+      - ./out:/out
+    restart: "no"
+
+volumes: { gerrit-etc: {}, gerrit-git: {}, gerrit-db: {}, gerrit-index: {}, gerrit-cache: {} }

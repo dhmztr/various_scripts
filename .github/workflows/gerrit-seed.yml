@@ -1,0 +1,48 @@
+name: gerrit-seed
+
+on:
+  workflow_dispatch:
+    inputs:
+      branch:
+        description: Gałąź docelowa dla master z Gerrita
+        default: gerrit-demo
+
+permissions:
+  contents: write
+
+jobs:
+  seed:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: gerrit-seed
+    steps:
+      - uses: actions/checkout@v4
+      - run: mkdir -p out && docker compose up --build --exit-code-from seed
+      - if: failure()
+        run: docker compose logs gerrit | tail -100
+      - if: always()
+        run: docker compose down -v
+      - uses: actions/upload-artifact@v4
+        with:
+          name: demo-repo
+          path: gerrit-seed/out/demo.git
+          retention-days: 7
+
+  push:
+    needs: seed
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: demo-repo
+          path: demo.git
+      - env:
+          TARGET: https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git
+          BRANCH: ${{ inputs.branch }}
+        run: |
+          git -C demo.git push --force "$TARGET" \
+            "refs/heads/master:refs/heads/$BRANCH" \
+            'refs/changes/*:refs/changes/*' \
+            'refs/meta/config:refs/meta/config'
