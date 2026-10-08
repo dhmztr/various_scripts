@@ -59,26 +59,35 @@ def git(*args, cwd=None):
     subprocess.run(["git", *args], cwd=cwd, check=True, stdout=subprocess.DEVNULL)
 
 
-def url(user="admin"):
+def url(project=PROJECT, user="admin"):
     scheme, host = G.split("://", 1)
-    return f"{scheme}://{user}:{PASS}@{host}/a/{PROJECT}"
+    return f"{scheme}://{user}:{PASS}@{host}/a/{project}"
+
+
+def mirror(project, out):
+    # pełny klon: refs/heads, refs/changes/*/{N,meta} (CL-ki i komentarze), refs/meta/config
+    git("clone", "-q", "--mirror", url(project), out)
+    git("config", "--remove-section", "remote.origin", cwd=out)  # URL zawiera hasło
+    # clone --mirror trzyma refy w packed-refs; rozpakuj każdy do pliku pod refs/
+    packed = f"{out}/packed-refs"
+    if os.path.exists(packed):
+        with open(packed) as f:
+            refs = [l.split() for l in f if l[0] not in "#^"]
+        os.remove(packed)
+        for sha, ref in refs:
+            os.makedirs(os.path.dirname(f"{out}/{ref}"), exist_ok=True)
+            with open(f"{out}/{ref}", "w") as f:
+                f.write(sha + "\n")
+    git("fsck", "--connectivity-only", "--no-progress", cwd=out)
 
 
 def export():
     if not EXPORT:
         return
-    git("clone", "-q", "--mirror", url(), EXPORT)
-    git("config", "--remove-section", "remote.origin", cwd=EXPORT)  # URL zawiera hasło
-    # clone --mirror trzyma refy w packed-refs; rozpakuj do plików refs/changes/...
-    packed = f"{EXPORT}/packed-refs"
-    with open(packed) as f:
-        refs = [l.split() for l in f if l[0] not in "#^"]
-    os.remove(packed)
-    for sha, ref in refs:
-        os.makedirs(os.path.dirname(f"{EXPORT}/{ref}"), exist_ok=True)
-        with open(f"{EXPORT}/{ref}", "w") as f:
-            f.write(sha + "\n")
-    print(f"repo -> {EXPORT}")
+    mirror(PROJECT, EXPORT)
+    # All-Users: konta (refs/users/*), które mapują "Gerrit User <id>" z komentarzy na nazwy
+    mirror("All-Users", os.path.join(os.path.dirname(EXPORT), "All-Users.git"))
+    print(f"repo -> {os.path.dirname(EXPORT)}")
 
 
 def creds():
@@ -105,6 +114,11 @@ for u in USERS:
     api("PUT", f"/accounts/{u}",
         {"name": u, "email": f"{u}@example.com", "http_password": PASS})
 api("PUT", f"/projects/{PROJECT}", {"create_empty_commit": True})
+
+# Access Database: bez tego admin widzi w All-Users tylko swój refs/users/*
+admins = get("/groups/Administrators")["id"]
+api("POST", "/projects/All-Projects/access", {"add": {"GLOBAL_CAPABILITIES": {
+    "permissions": {"accessDatabase": {"rules": {admins: {"action": "ALLOW"}}}}}}})
 
 # repo + CL-ki: każdy commit wypchnięty na refs/for/master to osobna zmiana
 work = tempfile.mkdtemp()
