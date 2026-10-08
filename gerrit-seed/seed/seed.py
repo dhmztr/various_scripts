@@ -32,7 +32,7 @@ def ok(url):
         return False
 
 
-def req(method, path, data, headers, opener=plain):
+def req(method, path, data, headers, opener=plain, allow=()):
     r = urllib.request.Request(
         f"{G}/a{path}",
         data=json.dumps(data).encode(),
@@ -42,11 +42,13 @@ def req(method, path, data, headers, opener=plain):
     try:
         opener.open(r)
     except urllib.error.HTTPError as e:
+        if e.code in allow:
+            return
         raise SystemExit(f"{method} {path} -> {e.code}: {e.read().decode().strip()}")
 
 
-def api(method, path, data, user="admin"):
-    req(method, path, data, {"Authorization": auth(user)})
+def api(method, path, data, user="admin", allow=()):
+    req(method, path, data, {"Authorization": auth(user)}, allow=allow)
 
 
 def get(path):
@@ -110,7 +112,8 @@ req("PUT", "/accounts/self/password.http", {"http_password": PASS},
 
 for u in USERS:
     api("PUT", f"/accounts/{u}",
-        {"name": u, "email": f"{u}@example.com", "http_password": PASS})
+        {"name": u, "email": f"{u}@example.com", "http_password": PASS},
+        allow=(409,))  # konto zostało z wcześniejszego uruchomienia
 api("PUT", f"/projects/{PROJECT}", {"create_empty_commit": True})
 
 # repo + CL-ki: każdy commit wypchnięty na refs/for/master to osobna zmiana
@@ -131,16 +134,20 @@ for i in range(1, 4):
     git("commit", "-q", "-m", f"Seed change {i}", cwd=work)
     git("push", "-q", "origin", "HEAD:refs/for/master", cwd=work)
 
-# komentarze: alice i bob recenzują każdy CL
-for i in range(1, 4):
-    api("POST", f"/changes/{PROJECT}~{i}/revisions/current/review", {
-        "message": f"alice: przejrzane CL {i}",
+# komentarze: alice i bob recenzują każdy CL; numery i pliki bierzemy z Gerrita,
+# bo numeracja zmian jest globalna i nie musi zaczynać się od 1
+changes = get(f"/changes/?q=project:{PROJECT}+status:open&o=CURRENT_REVISION&o=CURRENT_FILES")
+for c in changes:
+    n = c["_number"]
+    path = next(f for f in c["revisions"][c["current_revision"]]["files"] if f != "/COMMIT_MSG")
+    api("POST", f"/changes/{n}/revisions/current/review", {
+        "message": f"alice: przejrzane CL {n}",
         "labels": {"Code-Review": 1},
-        "comments": {f"file{i}.txt": [{"line": 1, "message": "Popraw tę linię"}]},
+        "comments": {path: [{"line": 1, "message": "Popraw tę linię"}]},
     }, "alice")
-    api("POST", f"/changes/{PROJECT}~{i}/revisions/current/review", {
-        "message": f"bob: uwagi do CL {i}",
-        "comments": {f"file{i}.txt": [{"line": 2, "message": "A tu literówka?"}]},
+    api("POST", f"/changes/{n}/revisions/current/review", {
+        "message": f"bob: uwagi do CL {n}",
+        "comments": {path: [{"line": 2, "message": "A tu literówka?"}]},
     }, "bob")
 
 # gałąź z kodem CL-ek i ich recenzjami jako pliki JSON (czytelne na GitHubie)
