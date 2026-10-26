@@ -155,10 +155,17 @@ class Lab:
             self.fh.flush()
 
     def sec_rates(self, sec):
+        from_rate = self.a.from_rate
         for label, key, width, mimo, pre in SECTIONS[sec]:
+            if self.a.mimo and mimo != self.a.mimo:
+                continue
             log("=== %s: %s ===" % (sec, label))
             n = 1
             for rate in RATES[key]:
+                if from_rate is not None and rate != from_rate:
+                    n += self.a.repeats
+                    continue
+                from_rate = None  # wznowienie dotyczy tylko pierwszego schematu
                 self.apply(rate, width, mimo, pre)
                 self.measure(sec, label, rate, width, self.a.length, "", self.a.repeats, n)
                 n += self.a.repeats
@@ -252,6 +259,8 @@ def main():
     r.add_argument("sections", nargs="+", help="2.2 2.3 2.4 2.5 2.6 2.7 2.8 lub all")
     r.add_argument("--rate", type=float, help="przeplywnosc [Mbps] dla 2.7/2.8")
     r.add_argument("--width", type=int, help="szerokosc kanalu [MHz] dla 2.7/2.8")
+    r.add_argument("--mimo", choices=["1x1", "2x2", "3x3"], help="2.5/2.6: tylko ten schemat MIMO")
+    r.add_argument("--from-rate", type=float, help="2.x: zacznij od tej przeplywnosci (wznowienie)")
     r.add_argument("--frag", type=int, nargs="*", help="progi fragmentacji [B] dla 2.8")
     a = p.parse_args()
 
